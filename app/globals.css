@@ -40,3 +40,188 @@ a {
     color-scheme: dark;
   }
 }
+
+/* Phase 1: Professional Chart Animations */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Hide lightweight-charts watermark */
+div[style*="position: absolute"][style*="bottom"][style*="left"][style*="pointer-events: none"] {
+  display: none !important;
+}
+
+/* Alternative selectors for watermark */
+.tv-lightweight-charts div[style*="position: absolute"][style*="bottom: 0px"][style*="left: 0px"] {
+  display: none !important;
+}
+
+/* Hide any attribution text */
+div[style*="font-size: 11px"][style*="position: absolute"][style*="bottom"] {
+  display: none !important;
+}
+
+/* Hide TradingView attribution links */
+a[href*="tradingview"] {
+  display: none !important;
+}
+
+/* Hide any link containing tradingview */
+a[href*="TradingView"] {
+  display: none !important;
+}
+
+/* Hide attribution divs with tradingview text */
+div:has(> a[href*="tradingview"]) {
+  display: none !important;
+}
+
+/* Chart Animation Enhancements */
+canvas {
+  transition: all 0.1s ease-out !important;
+}
+
+/* Smooth price transitions */
+.tv-lightweight-charts {
+  transition: transform 0.1s ease-out;
+}
+
+/* Complete TradingView attribution removal */
+div[style*="position: absolute"][style*="bottom"][style*="left"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+/* Target all TradingView attribution links */
+a[href*="tradingview"],
+a[href*="TradingView"],
+a[href*="www.tradingview.com"],
+a[href*="https://www.tradingview.com"],
+a[target="_blank"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+/* Target containers of TradingView links */
+div:has(> a[href*="tradingview"]),
+div:has(> a[href*="TradingView"]),
+span:has(> a[href*="tradingview"]) {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+/* Target text content containing TradingView references */
+[data-content*="TradingView"],
+[data-content*="tradingview"],
+[data-content*="Charting by TradingView"],
+[data-content*="charting by tradingview"],
+[data-content*="www.tradingview.com"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+/* Lightweight-charts specific watermark */
+div[style*="bottom: 0px"][style*="left: 0px"],
+div[style*="bottom:0px"][style*="left:0px"],
+div[style*="bottom: 0"][style*="left: 0"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+/* Any element with lightweight charts attribution */
+*[class*="watermark"],
+*[id*="watermark"],
+*[data-name*="attribution"],
+*[data-name*="watermark"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+/* Generic attribution removal */
+div > a[target="_blank"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+/* Additional specific targeting */
+a[href^="https://www.tradingview.com"],
+a[href^="http://www.tradingview.com"],
+a[href^="//www.tradingview.com"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  position: absolute;
+  left: -9999px;
+  top: -9999px;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+/* Hide any text containing TradingView */
+div[data-text*="TradingView"],
+span[data-text*="TradingView"],
+a[data-text*="TradingView"],
+div[title*="TradingView"],
+span[title*="TradingView"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+/* Target all possible TradingView attribution patterns */
+*[title*="TradingView"],
+*[alt*="TradingView"],
+*[data-*="tradingview" i],
+*[class*="tradingview" i],
+*[id*="tradingview" i] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+/* Comprehensive bottom-left positioning removal */
+div[style*="position:absolute"][style*="bottom:0"][style*="left:0"],
+div[style*="position: absolute"][style*="bottom: 0"][style*="left: 0"],
+div[style*="position:absolute;"][style*="bottom:0px;"][style*="left:0px;"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+/* More specific TradingView link removal */
+div[style*="position: absolute"][style*="bottom"] a {
+  display: none !important;
+}
+
+/* Hide parent div if it contains TradingView link */
+div[style*="position: absolute"][style*="bottom"]:has(a) {
+  display: none !important;
+}
+
+/* Disable crosshair related elements */
+.tv-lightweight-charts *[class*="crosshair"] {
+  display: none !important;
+}
+
+/* Hide any crosshair markers */
+.tv-lightweight-charts *[class*="marker"] {
+  display: none !important;
+}
+
+/* Force disable crosshair elements */
+.tv-lightweight-charts svg g[class*="crosshair"] {
+  display: none !important;
+}

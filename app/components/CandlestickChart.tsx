@@ -22,11 +22,14 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<any> | null>(null);
+  const volumeSeriesRef = useRef<ISeriesApi<any> | null>(null);
   const [loading, setLoading] = useState(true);
   const [pair, setPair] = useState(symbol);
   const [tf, setTf] = useState<'1h' | '4h' | '1d' | 'all'>('all');
   const [chartType, setChartType] = useState<'candles' | 'bars' | 'line' | 'area' | 'baseline' | 'heikin' | 'hollow'>('candles');
   const [showTypeMenu, setShowTypeMenu] = useState(false);
+  const [autoScroll, setAutoScroll] = useState(true); // Phase 1: Auto-scroll control
+  const autoScrollRef = useRef(true); // Immediate reference for live updates
   const tfRef = useRef<'1h' | '4h' | '1d' | 'all'>('all');
   const lastCandlesRef = useRef<Candle[]>([]);
   // Keep last candle time to drive zoom window
@@ -44,7 +47,7 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
   // Fetch candles with resolution based on current timeframe for professional density
   const fetchCandles = async () => {
     let interval: '1m' | '5m' | '15m' = '15m';
-    let limit = 96 * 15; // default: 15 days of 15m bars
+    let limit = 1000; // Limit to 1000 candles for performance (Phase 1 optimization)
     switch (tfRef.current) {
       case '1h':
         interval = '1m';
@@ -76,11 +79,18 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
     applySeriesDataForType(chartType);
     // Update last time reference and fit to all (15 days) or apply zoom
     lastTimeRef.current = candles.length ? candles[candles.length - 1].time : null;
-    if (tfRef.current === 'all' || !lastTimeRef.current) {
-      chartRef.current?.timeScale().fitContent();
-    } else {
-      applyZoomToTf(tfRef.current);
+    
+    // Phase 1: Auto-scroll control logic - check both autoScroll state and manual interaction
+    if (autoScroll) {
+      if (tfRef.current === 'all' || !lastTimeRef.current) {
+        chartRef.current?.timeScale().fitContent();
+      } else {
+        applyZoomToTf(tfRef.current);
+      }
     }
+    // If autoScroll is false (user disabled it), preserve their current position
+    // If manual mode, don't change chart position
+    
     setLoading(false);
   };
 
@@ -108,15 +118,18 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
     if (tfRef.current === next) return;
     setTf(next);
     tfRef.current = next;
-    rangeModeRef.current = 'auto';
+    // Don't reset range mode on timeframe change - preserve user's scroll preference
+    // rangeModeRef.current = 'auto';  // Commented out to preserve user preference
     loadCandles();
   };
 
-  // Pair control
+    // Pair control
   const handleSetPair = (next: string) => {
     if (!next || next === pair) return;
     setPair(next);
-    rangeModeRef.current = 'auto';
+    // Don't reset user interaction flags on pair change - preserve user's scroll preference
+    // rangeModeRef.current = 'auto';  // Commented out to preserve user preference
+    // userInteractedRef.current = false;  // Commented out to preserve user preference
     loadCandles();
   };
 
@@ -196,6 +209,17 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
     const raw = lastCandlesRef.current;
     let source: Candle[] = raw;
     if (type === 'heikin') source = toHeikinAshi(raw);
+    
+    // Apply volume data (Phase 1 - Professional Feature)
+    if (volumeSeriesRef.current && source.length) {
+      const volumeData = source.map(c => ({
+        time: c.time as any,
+        value: c.volume,
+        color: c.close >= c.open ? '#26a69a' : '#ef5350'
+      }));
+      volumeSeriesRef.current.setData(volumeData as any);
+    }
+
     if (type === 'candles' || type === 'hollow' || type === 'bars') {
       const ohlc = source.map(c => ({ time: c.time as any, open: c.open, high: c.high, low: c.low, close: c.close }));
       seriesRef.current.setData(ohlc as any);
@@ -224,6 +248,18 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
     });
     chartRef.current = chart;
 
+    // Create volume series (Phase 1 - Professional Feature) with proper separation
+    const volumeSeries = chart.addHistogramSeries({
+      priceFormat: { type: 'volume' },
+      priceScaleId: 'volume',
+    });
+    volumeSeriesRef.current = volumeSeries;
+    
+    // Configure volume price scale to be at bottom 20% of chart
+    chart.priceScale('volume').applyOptions({
+      scaleMargins: { top: 0.8, bottom: 0 },
+    });
+
   // initial series
   rebuildSeries(chartType);
 
@@ -233,7 +269,10 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
     // Detect user-driven zoom/pan and switch to manual mode
     const unsub = chart.timeScale().subscribeVisibleTimeRangeChange(() => {
       if (isProgrammaticRangeChange.current) return;
+      console.log('🔄 User manual scroll detected - switching to manual mode');
       rangeModeRef.current = 'manual';
+      autoScrollRef.current = false; // Immediate update for live updates
+      setAutoScroll(false); // Phase 1: Auto-disable auto-scroll on manual interaction
     });
 
     return () => {
@@ -242,6 +281,7 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
       chart.remove();
       chartRef.current = null;
   seriesRef.current = null;
+      volumeSeriesRef.current = null;
     };
   }, []);
 
@@ -253,7 +293,10 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
   lastCandlesRef.current = candles;
   applySeriesDataForType(chartType);
       lastTimeRef.current = candles.length ? candles[candles.length - 1].time : null;
-      if (rangeModeRef.current === 'auto') {
+      if (autoScroll) {
+        // Only auto-scroll if the auto-scroll button is ON
+        console.log('📊 Pair changed - auto-scroll is ON, applying zoom');
+        autoScrollRef.current = true; // Sync the ref
         if (tfRef.current === 'all' || !lastTimeRef.current) {
           isProgrammaticRangeChange.current = true;
           chartRef.current?.timeScale().fitContent();
@@ -261,10 +304,14 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
         } else {
           applyZoomToTf(tfRef.current);
         }
+      } else {
+        console.log('📊 Pair changed - auto-scroll is OFF, preserving position');
+        autoScrollRef.current = false; // Sync the ref
       }
+      // If autoScroll is false, preserve current chart position
       setLoading(false);
     });
-    // live polling every 10s (with in-flight guard) to avoid heavy loads for 15d window
+    // Phase 1 Fix: More frequent updates with better performance (1 second for live data)
     const fetchingRef = { current: false } as { current: boolean };
     const id = setInterval(() => {
       if (fetchingRef.current) return;
@@ -272,10 +319,19 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
       fetchCandles()
         .then((candles) => {
           if (!seriesRef.current) return;
+          
           lastCandlesRef.current = candles;
           applySeriesDataForType(chartType);
           lastTimeRef.current = candles.length ? candles[candles.length - 1].time : null;
-          if (rangeModeRef.current === 'auto') {
+          
+          // Phase 1 Fix: Apply auto-scroll or restore manual position
+          if (!autoScrollRef.current) {
+            // Auto-scroll is disabled (user has manually scrolled) - preserve current view
+            console.log('🚫 Auto-scroll disabled - preserving current view');
+            // Do nothing - preserve current view
+          } else {
+            // Auto-scroll is enabled - follow the latest data
+            console.log('📈 Auto-scrolling to latest data');
             if (tfRef.current === 'all' || !lastTimeRef.current) {
               isProgrammaticRangeChange.current = true;
               chartRef.current?.timeScale().fitContent();
@@ -286,7 +342,7 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
           }
         })
         .finally(() => { fetchingRef.current = false; });
-    }, 10000);
+    }, 1000); // Phase 1: Faster updates for live trading
 
     return () => clearInterval(id);
   }, [pair]);
@@ -339,6 +395,37 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
             </div>
           )}
         </div>
+        
+        {/* Auto-scroll toggle (Phase 1 Professional Feature) */}
+        <button
+          onClick={() => {
+            const newAutoScroll = !autoScroll;
+            setAutoScroll(newAutoScroll);
+            autoScrollRef.current = newAutoScroll; // Immediate sync
+            if (newAutoScroll) {
+              console.log('🔄 Auto-scroll manually enabled');
+              rangeModeRef.current = 'auto';
+              // Immediately apply zoom when enabling auto-scroll
+              if (tfRef.current === 'all') {
+                chartRef.current?.timeScale().fitContent();
+              } else {
+                applyZoomToTf(tfRef.current);
+              }
+            } else {
+              console.log('🔄 Auto-scroll manually disabled');
+            }
+          }}
+          style={{
+            background: autoScroll ? '#059669' : '#111827',
+            color: '#e5e7eb',
+            border: '1px solid #374151',
+            padding: '6px 10px',
+            borderRadius: 6,
+            cursor: 'pointer'
+          }}
+        >
+          📺 {autoScroll ? 'Auto' : 'Manual'}
+        </button>
       </div>
 
       {/* Top toolbar for currency selection */}
@@ -362,6 +449,25 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
             <option key={p} value={p}>{p.replace('USDT','/USDT')}</option>
           ))}
         </select>
+        
+        {/* Phase 2: Market Status Indicator */}
+        <div style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: 4,
+          color: '#10b981',
+          fontSize: 12
+        }}>
+          <div style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            backgroundColor: loading ? '#f59e0b' : '#10b981',
+            animation: loading ? 'pulse 2s infinite' : 'none'
+          }} />
+          {loading ? 'Loading...' : 'Live'}
+        </div>
+        
         {loading && <span style={{ fontSize: 12, color: '#aaa' }}>লোড হচ্ছে…</span>}
       </div>
 
