@@ -3,19 +3,20 @@
 
 'use client';
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, ColorType, IChartApi, ISeriesApi, CandlestickData, Time } from 'lightweight-charts';
+import { createChart, ColorType, IChartApi, ISeriesApi, Time } from 'lightweight-charts';
+import { ChartVisualType, Candle as CandleType } from './chartTypes/types';
+import { createCandlesSeries } from './chartTypes/candles';
+import { createBarsSeries } from './chartTypes/bars';
+import { createLineSeries } from './chartTypes/line';
+import { createAreaSeries } from './chartTypes/area';
+import { createBaselineSeries } from './chartTypes/baseline';
+import { createHollowSeries } from './chartTypes/hollow';
+import { createHeikinSeries } from './chartTypes/heikin';
 import IndicatorsPanel from './IndicatorsPanel';
 import { IndicatorKey } from './indicators/types';
 import { useIndicators } from './indicators/useIndicators';
 
-interface Candle {
-  time: number; // unix timestamp (sec)
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-}
+interface Candle extends CandleType {}
 
 interface Props {
   symbol?: string; // e.g., BTCUSDT
@@ -25,11 +26,14 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<any> | null>(null);
+  // Cache created series per type to avoid removing/adding flicker
+  const seriesCacheRef = useRef<Record<string, ISeriesApi<any>>>({});
   const volumeSeriesRef = useRef<ISeriesApi<any> | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isChangingType, setIsChangingType] = useState(false); // New state for type changing
   const [pair, setPair] = useState(symbol);
   const [tf, setTf] = useState<'1h' | '4h' | '1d' | 'all'>('all');
-  const [chartType, setChartType] = useState<'candles' | 'bars' | 'line' | 'area' | 'baseline' | 'heikin' | 'hollow'>('candles');
+  const [chartType, setChartType] = useState<ChartVisualType>('candles');
   const [showTypeMenu, setShowTypeMenu] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true); // Phase 1: Auto-scroll control
   const autoScrollRef = useRef(true); // Immediate reference for live updates
@@ -84,12 +88,12 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
     setLoading(true);
     const candles = await fetchCandles();
     lastCandlesRef.current = candles;
-    if (!seriesRef.current) return;
-    applySeriesDataForType(chartType);
-    // Update last time reference and fit to all (15 days) or apply zoom
+    if (!seriesRef.current) {
+      activateSeries(chartType);
+    } else {
+      applySeriesDataForType(chartType);
+    }
     lastTimeRef.current = candles.length ? candles[candles.length - 1].time : null;
-    
-    // Phase 1: Auto-scroll control logic - check both autoScroll state and manual interaction
     if (autoScroll) {
       if (tfRef.current === 'all' || !lastTimeRef.current) {
         chartRef.current?.timeScale().fitContent();
@@ -97,9 +101,6 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
         applyZoomToTf(tfRef.current);
       }
     }
-    // If autoScroll is false (user disabled it), preserve their current position
-    // If manual mode, don't change chart position
-    
     setLoading(false);
   };
 
@@ -161,63 +162,73 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
     return result;
   };
 
-  // Build series for current chart type and set data
-  const rebuildSeries = (type: typeof chartType) => {
-    if (!chartRef.current) return;
-    // remove old series if exists
-    if (seriesRef.current) {
-      try { /* @ts-ignore */ chartRef.current.removeSeries(seriesRef.current); } catch {}
-      seriesRef.current = null as any;
-    }
-    const chart = chartRef.current;
-    switch (type) {
-      case 'bars':
-        seriesRef.current = chart.addBarSeries({
-          upColor: '#0ECB81', downColor: '#F6465D', thinBars: false,
-          priceLineVisible: true,
-        }) as any;
-        break;
-      case 'line':
-        seriesRef.current = chart.addLineSeries({ color: '#4ade80', lineWidth: 2 }) as any;
-        break;
-      case 'area':
-        seriesRef.current = chart.addAreaSeries({
-          lineColor: '#60a5fa', topColor: 'rgba(96,165,250,0.25)', bottomColor: 'rgba(96,165,250,0.02)', lineWidth: 2,
-        }) as any;
-        break;
-      case 'baseline': {
-        const basePrice = lastCandlesRef.current.length ? lastCandlesRef.current[lastCandlesRef.current.length - 1].close : 0;
-        seriesRef.current = chart.addBaselineSeries({
-          baseValue: { type: 'price', price: basePrice },
-          topLineColor: '#22c55e', topFillColor1: 'rgba(34,197,94,0.25)', topFillColor2: 'rgba(34,197,94,0.02)',
-          bottomLineColor: '#ef4444', bottomFillColor1: 'rgba(239,68,68,0.25)', bottomFillColor2: 'rgba(239,68,68,0.02)',
-          lineWidth: 2,
-        }) as any;
-        break;
-      }
-      case 'hollow':
-        seriesRef.current = chart.addCandlestickSeries({
-          upColor: 'rgba(0,0,0,0)', borderUpColor: '#0ECB81', wickUpColor: '#0ECB81',
-          downColor: '#F6465D', borderDownColor: '#F6465D', wickDownColor: '#F6465D',
-        }) as any;
-        break;
-      case 'heikin':
-      case 'candles':
-      default:
-        seriesRef.current = chart.addCandlestickSeries({
-          upColor: '#0ECB81', borderUpColor: '#0ECB81', wickUpColor: '#0ECB81',
-          downColor: '#F6465D', borderDownColor: '#F6465D', wickDownColor: '#F6465D',
-        }) as any;
-        break;
-    }
-    applySeriesDataForType(type);
+  // Smooth chart type change handler
+  const handleChartTypeChange = (newType: typeof chartType) => {
+    if (newType === chartType || isChangingType) return;
+    
+    // Set changing state to prevent multiple clicks
+    setIsChangingType(true);
+    
+    // Update state and rebuild series immediately
+    setChartType(newType);
+    setShowTypeMenu(false);
+    activateSeries(newType); // use cached series switching
+    
+    // Reset changing state
+    setTimeout(() => setIsChangingType(false), 50);
   };
 
-  const applySeriesDataForType = (type: typeof chartType) => {
-    if (!seriesRef.current) return;
+  const activateSeries = (type: ChartVisualType) => {
+    if (!chartRef.current || !lastCandlesRef.current.length) return;
+    const chart = chartRef.current;
+    const raw = lastCandlesRef.current;
+
+    // Hide existing
+    Object.values(seriesCacheRef.current).forEach(s => { try { (s as any).applyOptions({ visible:false }); } catch {} });
+
+    // Create via factories
+    if (!seriesCacheRef.current[type]) {
+      const ctx = { chart, candles: raw, cache: seriesCacheRef.current };
+      switch (type) {
+        case 'bars':
+          seriesCacheRef.current[type] = createBarsSeries(ctx).series; break;
+        case 'line':
+          seriesCacheRef.current[type] = createLineSeries(ctx).series; break;
+        case 'area':
+          seriesCacheRef.current[type] = createAreaSeries(ctx).series; break;
+        case 'baseline':
+          seriesCacheRef.current[type] = createBaselineSeries(ctx).series; break;
+        case 'hollow':
+          seriesCacheRef.current[type] = createHollowSeries(ctx).series; break;
+        case 'heikin':
+          seriesCacheRef.current[type] = createHeikinSeries(ctx).series; break;
+        case 'candles':
+        default:
+          seriesCacheRef.current[type] = createCandlesSeries(ctx).series; break;
+      }
+    }
+    seriesRef.current = seriesCacheRef.current[type];
+    try { (seriesRef.current as any).applyOptions({ visible:true }); } catch {}
+
+    // Volume update stays same
+    if (volumeSeriesRef.current && showVolume) {
+      try { volumeSeriesRef.current.setData(raw.map(c => ({ time:c.time as any, value:c.volume, color:c.close>=c.open?'#26a69a':'#ef5350' })) as any); } catch {}
+    }
+
+    if (tfRef.current === 'all') chart.timeScale().fitContent(); else applyZoomToTf(tfRef.current);
+  };
+
+  const applySeriesDataForType = (type: ChartVisualType) => {
+    if (!seriesRef.current || !lastCandlesRef.current.length) {
+      console.log('⚠️ Cannot apply series data: missing series or data');
+      return;
+    }
+    
     const raw = lastCandlesRef.current;
     let source: Candle[] = raw;
     if (type === 'heikin') source = toHeikinAshi(raw);
+    
+    console.log(`📊 Applying ${type} data with ${source.length} candles`);
     
     // Apply volume data (Phase 1 - Professional Feature)
     if (volumeSeriesRef.current && source.length && showVolume) {
@@ -229,12 +240,19 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
       volumeSeriesRef.current.setData(volumeData as any);
     }
 
-    if (type === 'candles' || type === 'hollow' || type === 'bars') {
-      const ohlc = source.map(c => ({ time: c.time as any, open: c.open, high: c.high, low: c.low, close: c.close }));
-      seriesRef.current.setData(ohlc as any);
-    } else if (type === 'line' || type === 'area' || type === 'baseline') {
-      const line = source.map(c => ({ time: c.time as any, value: c.close }));
-      seriesRef.current.setData(line as any);
+    // Apply main series data based on chart type
+    try {
+      if (type === 'candles' || type === 'hollow' || type === 'bars' || type === 'heikin') {
+        const ohlc = source.map(c => ({ time: c.time as any, open: c.open, high: c.high, low: c.low, close: c.close }));
+        seriesRef.current.setData(ohlc as any);
+        console.log(`✅ Applied OHLC data for ${type}`);
+      } else if (type === 'line' || type === 'area' || type === 'baseline') {
+        const line = source.map(c => ({ time: c.time as any, value: c.close }));
+        seriesRef.current.setData(line as any);
+        console.log(`✅ Applied line data for ${type}`);
+      }
+    } catch (error) {
+      console.error('❌ Error applying series data:', error);
     }
   };
 
@@ -269,8 +287,7 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
       scaleMargins: { top: 0.8, bottom: 0 },
     });
 
-  // initial series
-  rebuildSeries(chartType);
+  // Don't create series here - wait for data to load first
 
     const handleResize = () => chart.applyOptions({ autoSize: true });
     window.addEventListener('resize', handleResize);
@@ -297,11 +314,18 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
   useEffect(() => {
     setLoading(true);
     fetchCandles().then((candles) => {
-  if (!seriesRef.current) return;
-      // Cast to expected types to satisfy TS for different lib versions
-  lastCandlesRef.current = candles;
-  applySeriesDataForType(chartType);
+      if (!chartRef.current) return;
+      
+      // Store candles data
+      lastCandlesRef.current = candles;
       lastTimeRef.current = candles.length ? candles[candles.length - 1].time : null;
+      
+      // Create series with data if it doesn't exist
+      if (!seriesRef.current) {
+        activateSeries(chartType);
+      } else {
+        applySeriesDataForType(chartType);
+      }
       
       // Update indicators with new data
       if (candles.length > 0) {
@@ -426,8 +450,18 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
                 {key:'heikin', label:'Heikin Ashi'},
               ].map(opt => (
                 <button key={opt.key}
-                  onClick={() => { setChartType(opt.key as any); setShowTypeMenu(false); rebuildSeries(opt.key as any); }}
-                  style={{ textAlign:'left', background: chartType===opt.key?'#1f2937':'#111827', color:'#e5e7eb', border:'1px solid #374151', padding:'6px 10px', borderRadius:6, cursor:'pointer' }}
+                  onClick={() => handleChartTypeChange(opt.key as any)}
+                  disabled={isChangingType}
+                  style={{ 
+                    textAlign:'left', 
+                    background: chartType===opt.key?'#1f2937':'#111827', 
+                    color: isChangingType ? '#666' : '#e5e7eb', 
+                    border:'1px solid #374151', 
+                    padding:'6px 10px', 
+                    borderRadius:6, 
+                    cursor: isChangingType ? 'wait' : 'pointer',
+                    opacity: isChangingType ? 0.6 : 1
+                  }}
                 >{opt.label}</button>
               ))}
             </div>
