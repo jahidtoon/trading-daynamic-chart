@@ -4,6 +4,9 @@
 'use client';
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, ColorType, IChartApi, ISeriesApi, CandlestickData, Time } from 'lightweight-charts';
+import IndicatorsPanel from './IndicatorsPanel';
+import { IndicatorKey } from './indicators/types';
+import { useIndicators } from './indicators/useIndicators';
 
 interface Candle {
   time: number; // unix timestamp (sec)
@@ -30,6 +33,7 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
   const [showTypeMenu, setShowTypeMenu] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true); // Phase 1: Auto-scroll control
   const autoScrollRef = useRef(true); // Immediate reference for live updates
+  
   const tfRef = useRef<'1h' | '4h' | '1d' | 'all'>('all');
   const lastCandlesRef = useRef<Candle[]>([]);
   // Keep last candle time to drive zoom window
@@ -37,6 +41,11 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
   // Track whether we should maintain auto zoom or honor user's manual zoom
   const rangeModeRef = useRef<'auto' | 'manual'>('auto');
   const isProgrammaticRangeChange = useRef(false);
+  
+  // Indicator states
+  const [showIndicators, setShowIndicators] = useState(false);
+  const [showVolume, setShowVolume] = useState(true); // Volume visibility control
+  const { active, add, remove, clear, update } = useIndicators(chartRef, seriesRef);
 
   // Popular Binance pairs
   const popularPairs = useRef<string[]>([
@@ -211,7 +220,7 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
     if (type === 'heikin') source = toHeikinAshi(raw);
     
     // Apply volume data (Phase 1 - Professional Feature)
-    if (volumeSeriesRef.current && source.length) {
+    if (volumeSeriesRef.current && source.length && showVolume) {
       const volumeData = source.map(c => ({
         time: c.time as any,
         value: c.volume,
@@ -293,6 +302,13 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
   lastCandlesRef.current = candles;
   applySeriesDataForType(chartType);
       lastTimeRef.current = candles.length ? candles[candles.length - 1].time : null;
+      
+      // Update indicators with new data
+      if (candles.length > 0) {
+        const intervalSec = tfRef.current === '1h' ? 60 : tfRef.current === '4h' ? 240 : tfRef.current === '1d' ? 1440 : 900;
+        update(candles, intervalSec);
+      }
+      
       if (autoScroll) {
         // Only auto-scroll if the auto-scroll button is ON
         console.log('📊 Pair changed - auto-scroll is ON, applying zoom');
@@ -324,6 +340,12 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
           applySeriesDataForType(chartType);
           lastTimeRef.current = candles.length ? candles[candles.length - 1].time : null;
           
+          // Update indicators with new live data
+          if (candles.length > 0) {
+            const intervalSec = tfRef.current === '1h' ? 60 : tfRef.current === '4h' ? 240 : tfRef.current === '1d' ? 1440 : 900;
+            update(candles, intervalSec);
+          }
+          
           // Phase 1 Fix: Apply auto-scroll or restore manual position
           if (!autoScrollRef.current) {
             // Auto-scroll is disabled (user has manually scrolled) - preserve current view
@@ -346,6 +368,22 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
 
     return () => clearInterval(id);
   }, [pair]);
+
+  // Volume visibility control
+  useEffect(() => {
+    if (volumeSeriesRef.current) {
+      volumeSeriesRef.current.applyOptions({
+        visible: showVolume
+      });
+    }
+    
+    // Also control the volume price scale visibility
+    if (chartRef.current) {
+      chartRef.current.priceScale('volume').applyOptions({
+        visible: showVolume
+      });
+    }
+  }, [showVolume]);
 
   return (
     <div style={{ width: '100vw', height: '100vh', margin: 0, padding: 0, background: '#10131a', color: '#fff' }}>
@@ -426,6 +464,36 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
         >
           📺 {autoScroll ? 'Auto' : 'Manual'}
         </button>
+        
+        {/* Indicators button (Phase 1 Professional Feature) */}
+        <button
+          onClick={() => setShowIndicators(s => !s)}
+          style={{
+            background: showIndicators ? '#1f2937' : '#111827',
+            color: '#e5e7eb',
+            border: '1px solid #374151',
+            padding: '6px 10px',
+            borderRadius: 6,
+            cursor: 'pointer'
+          }}
+        >
+          📊 Indicators
+        </button>
+        
+        {/* Volume toggle button (Phase 1 Professional Feature) */}
+        <button
+          onClick={() => setShowVolume(s => !s)}
+          style={{
+            background: showVolume ? '#1f2937' : '#111827',
+            color: '#e5e7eb',
+            border: '1px solid #374151',
+            padding: '6px 10px',
+            borderRadius: 6,
+            cursor: 'pointer'
+          }}
+        >
+          � Volume
+        </button>
       </div>
 
       {/* Top toolbar for currency selection */}
@@ -470,6 +538,22 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
         
         {loading && <span style={{ fontSize: 12, color: '#aaa' }}>লোড হচ্ছে…</span>}
       </div>
+
+      {/* Indicators Panel (Phase 1 Professional Feature) */}
+      {showIndicators && (
+        <IndicatorsPanel
+          active={active}
+          onAdd={(key) => {
+            if (lastCandlesRef.current.length > 0) {
+              const intervalSec = tfRef.current === '1h' ? 60 : tfRef.current === '4h' ? 240 : tfRef.current === '1d' ? 1440 : 900; // 15m default
+              add(key, lastCandlesRef.current, intervalSec);
+            }
+          }}
+          onRemove={remove}
+          onClear={clear}
+          onClose={() => setShowIndicators(false)}
+        />
+      )}
 
       <div ref={containerRef} style={{ height: '100vh', width: '100vw' }} />
     </div>
