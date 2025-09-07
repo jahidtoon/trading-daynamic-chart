@@ -34,6 +34,8 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
   const [pair, setPair] = useState(symbol);
   const [tf, setTf] = useState<'1h' | '4h' | '1d' | 'all'>('all');
   const [chartType, setChartType] = useState<ChartVisualType>('candles');
+  // Ref to always-current chart type so background intervals don't use stale closure
+  const chartTypeRef = useRef<ChartVisualType>('candles');
   const [showTypeMenu, setShowTypeMenu] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true); // Phase 1: Auto-scroll control
   const autoScrollRef = useRef(true); // Immediate reference for live updates
@@ -89,9 +91,9 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
     const candles = await fetchCandles();
     lastCandlesRef.current = candles;
     if (!seriesRef.current) {
-      activateSeries(chartType);
+      activateSeries(chartTypeRef.current);
     } else {
-      applySeriesDataForType(chartType);
+      applySeriesDataForType(chartTypeRef.current);
     }
     lastTimeRef.current = candles.length ? candles[candles.length - 1].time : null;
     if (autoScroll) {
@@ -171,6 +173,7 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
     
     // Update state and rebuild series immediately
     setChartType(newType);
+  chartTypeRef.current = newType; // keep ref in sync for interval updates
     setShowTypeMenu(false);
     activateSeries(newType); // use cached series switching
     
@@ -322,9 +325,9 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
       
       // Create series with data if it doesn't exist
       if (!seriesRef.current) {
-        activateSeries(chartType);
+  activateSeries(chartTypeRef.current);
       } else {
-        applySeriesDataForType(chartType);
+  applySeriesDataForType(chartTypeRef.current);
       }
       
       // Update indicators with new data
@@ -361,7 +364,8 @@ export default function CandlestickChart({ symbol = 'BTCUSDT' }: Props) {
           if (!seriesRef.current) return;
           
           lastCandlesRef.current = candles;
-          applySeriesDataForType(chartType);
+          // Use ref so latest selected type determines data shape (fixes line series blank issue)
+          applySeriesDataForType(chartTypeRef.current);
           lastTimeRef.current = candles.length ? candles[candles.length - 1].time : null;
           
           // Update indicators with new live data
